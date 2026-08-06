@@ -295,27 +295,75 @@ private:
 // 症状是 fb=1.0 档逐圈滞后线性累积 +15.6/圈（46.28 dB），
 // 而 fb=0 档完全正常（1.19 dB ✓）—— 那个对比本身就是定位线索。
 // ============================================================
+// ------------------------------------------------------------
+// 它是 **20.509** 样点，不是 16 —— 分数部分 4.509 由反卷积单独定出
+// （见 DelayTuning.h 的 kMeasWetPreDelayFrac）。这里用与主延迟线同族的
+// 中心 Lagrange 插值实现那 0.509，系数在 reset() 里算一次：τ 是常数，
+// 没有理由每样点重算 16 个基函数。
+//
+// 为什么不能只用整数 20 或 21：缺失级的反卷积核是**两个相邻的近等抽头**
+// （0.481 / 0.497），那是半样点的指纹；取整会把它变成单抽头，等于故意
+// 留下 0.5 样点的宽带相位误差。
+// ------------------------------------------------------------
 class WetPreDelay
 {
 public:
-    static constexpr int kLen = delaytuning::kMeasLoopPreDelaySamples;
+    static constexpr int kOrder = delaytuning::kArchFracInterpOrder;
+    static constexpr int kNodes = kOrder + 1;
+    static constexpr int kHalf  = kOrder / 2;
+
+    /// 总延迟 = 整数 16 + 分数 4.509
+    static constexpr double kTotal =
+        static_cast<double>(delaytuning::kMeasLoopPreDelaySamples)
+        + delaytuning::kMeasWetPreDelayFrac;
+
+    /// 缓冲要装下最远的节点：floor(kTotal) + kHalf，再留几格余量。
+    static constexpr int kLen = static_cast<int>(kTotal) + kHalf + 4;
 
     void reset() noexcept
     {
         z_.fill(0.0f);
         pos_ = 0;
+
+        // Lagrange 基函数（节点为整数偏移 i − kHalf，分母是常量序列）
+        const int di = static_cast<int>(kTotal);
+        const float t = static_cast<float>(kTotal - static_cast<double>(di));
+        di_ = di;
+        for (int i = 0; i < kNodes; ++i)
+        {
+            const float ni = static_cast<float>(i - kHalf);
+            float wt = 1.0f;
+            for (int j = 0; j < kNodes; ++j)
+            {
+                if (j == i) continue;
+                const float nj = static_cast<float>(j - kHalf);
+                wt *= (t - nj) / (ni - nj);
+            }
+            c_[static_cast<size_t>(i)] = wt;
+        }
     }
 
     inline float process(float x) noexcept
     {
-        const float y = z_[static_cast<size_t>(pos_)];
         z_[static_cast<size_t>(pos_)] = x;
+
+        float y = 0.0f;
+        for (int i = 0; i < kNodes; ++i)
+        {
+            int idx = pos_ - (di_ + i - kHalf);
+            while (idx < 0)     idx += kLen;
+            while (idx >= kLen) idx -= kLen;
+            y += c_[static_cast<size_t>(i)] * z_[static_cast<size_t>(idx)];
+        }
+
         if (++pos_ >= kLen) pos_ = 0;
         return y;
     }
 
 private:
-    std::array<float, kLen> z_ {};
+    std::array<float, static_cast<size_t>(kLen)> z_ {};
+    std::array<float, kNodes> c_ {};
+    int di_ { 0 };
     int pos_ { 0 };
 };
 

@@ -89,9 +89,14 @@ def main() -> None:
     rp = {"delay_drywet": 1.0, "delay_time_l": 0.0, "delay_time_r": 0.0,
           "delay_feedback": 1.0, "delay_lowpass": 1.0, "delay_highpass": 0.0,
           "delay_mode": 1.0}
+    # ⚠️ 必须标定 LFO 起相。不设它 = 随机取一个相位，于是逐圈重心里混入
+    # ±3.4 样点的 LFO 摆动（§14.5 的深度律在 D=4800 上给 3.40）。那正是
+    # 下面两列 std≈2.4…2.6 的来源 —— **均值仍然可用**（摆动零均值），
+    # 但逐圈的抖动模式在两侧是各摆各的，不能逐圈比。
     cp = {"drywet": 0.0, "d_active": 1.0, "d_drywet": 1.0,
           "d_timel": 0.0, "d_timer": 0.0, "d_feedback": 1.0,
-          "d_lowpass": 1.0, "d_highpass": 0.0, "d_stereo": 1.0}
+          "d_lowpass": 1.0, "d_highpass": 0.0, "d_stereo": 1.0,
+          "d_lfophase": 0.238423}
 
     yr = ref.render(x, rp)[0]
     yc = cand.render(x, cp)[0]
