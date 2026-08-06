@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/Users/realmac/Documents/trae_projects/neuralrev/build/_deps/juce-subbuild/CMakeFiles/juce-populate"
+		},
+		{
+			"file" : "/Users/realmac/Documents/trae_projects/neuralrev/build/_deps/juce-subbuild/CMakeFiles/juce-populate.rule"
+		},
+		{
+			"file" : "/Users/realmac/Documents/trae_projects/neuralrev/build/_deps/juce-subbuild/CMakeFiles/juce-populate-complete.rule"
+		},
+		{
+			"file" : "/Users/realmac/Documents/trae_projects/neuralrev/build/_deps/juce-subbuild/juce-populate-prefix/src/juce-populate-stamp/juce-populate-build.rule"
+		},
+		{
+			"file" : "/Users/realmac/Documents/trae_projects/neuralrev/build/_deps/juce-subbuild/juce-populate-prefix/src/juce-populate-stamp/juce-populate-configure.rule"
+		},
+		{
+			"file" : "/Users/realmac/Documents/trae_projects/neuralrev/build/_deps/juce-subbuild/juce-populate-prefix/src/juce-populate-stamp/juce-populate-download.rule"
+		},
+		{
+			"file" : "/Users/realmac/Documents/trae_projects/neuralrev/build/_deps/juce-subbuild/juce-populate-prefix/src/juce-populate-stamp/juce-populate-install.rule"
+		},
+		{
+			"file" : "/Users/realmac/Documents/trae_projects/neuralrev/build/_deps/juce-subbuild/juce-populate-prefix/src/juce-populate-stamp/juce-populate-mkdir.rule"
+		},
+		{
+			"file" : "/Users/realmac/Documents/trae_projects/neuralrev/build/_deps/juce-subbuild/juce-populate-prefix/src/juce-populate-stamp/juce-populate-patch.rule"
+		},
+		{
+			"file" : "/Users/realmac/Documents/trae_projects/neuralrev/build/_deps/juce-subbuild/juce-populate-prefix/src/juce-populate-stamp/juce-populate-test.rule"
+		},
+		{
+			"file" : "/Users/realmac/Documents/trae_projects/neuralrev/build/_deps/juce-subbuild/juce-populate-prefix/src/juce-populate-stamp/juce-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"juce-populate"
+		],
+		"name" : "juce-populate"
+	}
+}

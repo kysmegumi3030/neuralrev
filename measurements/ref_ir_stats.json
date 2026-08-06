@@ -1,0 +1,12 @@
+{
+  "sr": 48000,
+  "latency": 51,
+  "ir_len": 383950,
+  "lti_repeat_maxdiff": 0.00023843348026275635,
+  "homogeneity_maxdiff": 0.0003321617841720581,
+  "homogeneity_rel": 0.005188269404572129,
+  "corr_LR": -0.0066131265357751885,
+  "first_nonzero": 477,
+  "peak_index": 4928,
+  "t60_samples": 124202
+}

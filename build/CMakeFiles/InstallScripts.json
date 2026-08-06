@@ -1,0 +1,11 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/realmac/Documents/trae_projects/neuralrev/build/cmake_install.cmake",
+		"/Users/realmac/Documents/trae_projects/neuralrev/build/_deps/juce-build/cmake_install.cmake",
+		"/Users/realmac/Documents/trae_projects/neuralrev/build/_deps/juce-build/modules/cmake_install.cmake",
+		"/Users/realmac/Documents/trae_projects/neuralrev/build/_deps/juce-build/extras/Build/cmake_install.cmake",
+		"/Users/realmac/Documents/trae_projects/neuralrev/build/_deps/juce-build/extras/Build/juceaide/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

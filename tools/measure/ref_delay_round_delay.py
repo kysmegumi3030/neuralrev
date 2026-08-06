@@ -1,0 +1,147 @@
+"""每圈的**累积延迟**：参考 vs 候选，逐圈直读。
+
+## 要判定的事
+
+候选在 fb=1.0 上的逐圈对齐滞后是 −4, 11, 27, 43, … 即 **+15.6 样点/圈**
+（`align` 的正 lag = 候选偏晚）。环内每圈的额外延迟有两个来源：
+
+  * `kMeasLoopPreDelaySamples = 16`（固定预延迟）
+  * `kMeasLoopFirTaps` 的群延迟（峰在第 7 抽头附近）
+
+两种拓扑给出不同的预测：
+
+  A. 预延迟**在环内**（当前候选：LoopFir 串在反馈支路上）
+     echo n 超出 n·D 的量 = (16 + gd)·n        ⇒ 增量 16+gd
+  B. 预延迟只在**湿抽头**上过一次（不进反馈）
+     echo n 超出 n·D 的量 = gd·n + 16          ⇒ 增量 gd
+
+相对增量 = 16 ⇒ 实测 15.6 支持「参考是 B、候选是 A」。
+
+但这条推断依赖 gd 的取值，而 gd 是从抽头形状估的。**更硬的判据是直接量
+参考自己的逐圈增量**：若参考是 B，它的增量就等于 gd（约 7）；若参考也是 A，
+增量应为 16+gd（约 23），那 15.6 的相对差就得由别的机制解释。
+
+档案里有一条旧读数「参考逐圈 +16/+2/+15/+3」，那是**峰位**（整数 argmax）读的，
+在 LFO 调制 + 双峰核下会在相邻样点间跳，所以呈现出 16/2/16/2 的锯齿。
+本脚本改用**能量重心**（对 LFO 抖动与核形状都稳），并同时报峰位以便对照。
+
+## 测法
+
+单冲激（amp=1e-3，线性区，见 §14.4）、`at = 19200`（过起始渐变，§14.10）、
+`fb=1.0`、`LP=1.0`、`HP=0.0`、Stereo。取 D = 4800（norm=0.0，**精确整数**，
+没有分数延迟搅混起点）。逐圈取窗 [n·D − 64, n·D + 1200)，在窗内算重心，
+减去 n·D 得到该圈的累积超出量。
+"""
+from __future__ import annotations
+
+import os
+import sys
+
+import numpy as np
+
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+
+from plugin_match import vst3_ref as V          # noqa: E402
+from plugin_match import nrev_cand as C         # noqa: E402
+
+SR = 48000
+AT = 19200          # 过起始渐变（§14.10）
+AMP = 1e-3          # 线性区（§14.4：amp>0.03 进饱和）
+NROUND = 9
+PRE = 64            # 窗左侧余量（容纳负向偏移）
+WIN = 1200
+
+
+def centroid(seg: np.ndarray) -> float:
+    """能量重心（相对窗起点，样点）。用 |x|² 加权。"""
+    w = np.abs(np.asarray(seg, float)) ** 2
+    s = w.sum()
+    if s <= 0.0:
+        return float("nan")
+    return float(np.dot(np.arange(len(w), dtype=float), w) / s)
+
+
+def rounds(y: np.ndarray, d: int) -> list[tuple[float, int, float]]:
+    """逐圈返回 (重心超出量, 峰位超出量, 窗内 rms)。"""
+    out = []
+    for n in range(1, NROUND + 1):
+        a = AT + n * d - PRE
+        seg = np.asarray(y, float)[a:a + WIN]
+        if len(seg) < WIN:
+            break
+        c = centroid(seg) - PRE
+        p = int(np.argmax(np.abs(seg))) - PRE
+        out.append((c, p, float(np.sqrt(np.mean(seg ** 2)))))
+    return out
+
+
+def main() -> None:
+    d = 4800    # norm=0.0 ⇒ 100 ms 恰好 4800 样点（整数）
+
+    n = AT + (NROUND + 2) * d
+    x = np.zeros(n, dtype=np.float64)
+    x[AT] = AMP
+
+    ref = V.Vst3RefRenderer(sr=SR, block=512, section="delay")
+    cand = C.NrevRenderer(sr=SR, block=512)
+
+    rp = {"delay_drywet": 1.0, "delay_time_l": 0.0, "delay_time_r": 0.0,
+          "delay_feedback": 1.0, "delay_lowpass": 1.0, "delay_highpass": 0.0,
+          "delay_mode": 1.0}
+    cp = {"drywet": 0.0, "d_active": 1.0, "d_drywet": 1.0,
+          "d_timel": 0.0, "d_timer": 0.0, "d_feedback": 1.0,
+          "d_lowpass": 1.0, "d_highpass": 0.0, "d_stereo": 1.0}
+
+    yr = ref.render(x, rp)[0]
+    yc = cand.render(x, cp)[0]
+
+    rr = rounds(yr, d)
+    rc = rounds(yc, d)
+
+    print(f"\n{'=' * 78}")
+    print(f"逐圈累积延迟（相对 n·D，D={d}）—— 重心口径")
+    print(f"{'=' * 78}")
+    print("  圈    参考重心   候选重心   差(cand-ref)  参考峰位  候选峰位")
+    for i, (a, b) in enumerate(zip(rr, rc), start=1):
+        print(f"  {i:2d}  {a[0]:9.2f}  {b[0]:9.2f}  {b[0] - a[0]:11.2f}"
+              f"  {a[1]:8d}  {b[1]:8d}")
+
+    ca = np.array([t[0] for t in rr])
+    cb = np.array([t[0] for t in rc])
+    da, db = np.diff(ca), np.diff(cb)
+
+    print(f"\n  参考逐圈增量：{np.round(da, 2)}")
+    print(f"    均值 {da.mean():.3f}  标准差 {da.std():.3f}")
+    print(f"  候选逐圈增量：{np.round(db, 2)}")
+    print(f"    均值 {db.mean():.3f}  标准差 {db.std():.3f}")
+    print(f"\n  相对增量（候选 − 参考）= {db.mean() - da.mean():.3f} 样点/圈")
+
+    print(f"\n{'=' * 78}")
+    print("判读")
+    print(f"{'=' * 78}")
+    print("  设 FIR 群延迟 gd、固定预延迟 16：")
+    print("    拓扑 A（预延迟在环内）  ⇒ 逐圈增量 = 16 + gd")
+    print("    拓扑 B（只在湿抽头一次）⇒ 逐圈增量 = gd，且第 1 圈多 16")
+    print(f"  参考实测增量 {da.mean():.2f} ⇒ 若为 B 则 gd ≈ {da.mean():.2f}；"
+          f"若为 A 则 gd ≈ {da.mean() - 16:.2f}")
+    print(f"  候选实测增量 {db.mean():.2f}（候选当前是 A，gd ≈ {db.mean() - 16:.2f}）")
+    print("  gd 可由抽头独立算出，见下 —— 三个数必须自洽，否则拓扑判错。")
+
+    taps = np.array([
+        9.62263668e-06, 1.60290989e-04, 1.58561456e-03, 9.58770734e-03,
+        4.09797339e-02, 1.19218596e-01, 2.29726013e-01, 2.90206586e-01,
+        2.32081954e-01, 9.87947094e-02, -3.96733547e-03, -2.79706871e-02,
+        -6.66839289e-03, 1.04657766e-02, 8.66904199e-03, 3.55806552e-04,
+        -2.98078448e-03, -1.36125211e-03, 5.59422371e-04, 7.39425299e-04,
+        9.38805754e-05, -2.37934054e-04, -1.31222246e-04, 3.49083115e-05,
+        6.42143005e-05, 1.35561315e-05, -1.85154631e-05, -1.07360456e-05,
+    ])
+    # DC 群延迟 = Σ n·h[n] / Σ h[n]（对低频而言就是重心）
+    gd_dc = float(np.dot(np.arange(len(taps), dtype=float), taps) / taps.sum())
+    gd_e = centroid(taps)
+    print(f"\n  抽头独立算出的群延迟：DC 口径 {gd_dc:.3f}，能量重心口径 {gd_e:.3f}")
+
+
+if __name__ == "__main__":
+    main()
