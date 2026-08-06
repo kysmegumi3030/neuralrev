@@ -142,6 +142,46 @@ def main() -> None:
     gd_e = centroid(taps)
     print(f"\n  抽头独立算出的群延迟：DC 口径 {gd_dc:.3f}，能量重心口径 {gd_e:.3f}")
 
+    hp_sweep(ref, cand, x, rp, cp, d, gd_dc, gd_e)
+
+
+def hp_sweep(ref, cand, x, rp, cp, d, gd_dc, gd_e) -> None:
+    """判定那 ~3.4–4.4 样点的未解释偏置是**口径效应**还是真实环路长度差。
+
+    两侧都读到 ~10–11.4 样点/圈，而抽头群延迟只有 6.73（DC）/ 6.96（重心）。
+    候选解释：环内用户 HP 是 20 Hz 二阶，48 kHz 上时间常数约 380 样点，
+    这么长的尾巴对**重心**有显著后拖偏置，而对 DC 群延迟几乎无贡献。
+
+      * 若增量随 HP 抬高而下降到接近 gd ⇒ 是 HP 尾巴的重心偏置（口径效应）
+      * 若增量不动                      ⇒ 是真实环路长度差，必须继续追
+
+    HP 归一化 0.0/0.2/0.4 对应 20 / 20+780·0.2^(5/3) / … Hz（§14.1 的 5/3 律）。
+    """
+    print(f"\n{'=' * 78}")
+    print("HP 扫描：那 ~4 样点是重心口径的偏置，还是真实环路长度？")
+    print(f"{'=' * 78}")
+    print(f"  基准：gd = {gd_dc:.3f}(DC) / {gd_e:.3f}(重心)")
+    print("   HP归一   HP(Hz)    参考增量   候选增量   差    参考−gd(重心)")
+
+    for hp in (0.0, 0.1, 0.2, 0.4):
+        hz = 20.0 + 780.0 * hp ** (5.0 / 3.0)
+        rp2 = dict(rp, delay_highpass=hp)
+        cp2 = dict(cp, d_highpass=hp)
+        try:
+            da = np.diff([t[0] for t in rounds(ref.render(x, rp2)[0], d)])
+            db = np.diff([t[0] for t in rounds(cand.render(x, cp2)[0], d)])
+        except Exception as exc:                     # 渲染失败不该中断整表
+            print(f"  {hp:6.2f}  {hz:7.1f}   ← 渲染失败：{exc}")
+            continue
+        if len(da) == 0 or len(db) == 0:
+            print(f"  {hp:6.2f}  {hz:7.1f}   ← 窗内无能量，跳过")
+            continue
+        print(f"  {hp:6.2f}  {hz:7.1f}  {da.mean():9.3f}  {db.mean():9.3f}"
+              f"  {db.mean() - da.mean():6.3f}  {da.mean() - gd_e:12.3f}")
+
+    print("\n  判读：末列若随 HP 抬高而趋近 0 ⇒ 口径效应（换 DC 口径即消失）；"
+          "\n        若在各档基本不变 ⇒ 真实环路长度差，不能记作已解释。")
+
 
 if __name__ == "__main__":
     main()

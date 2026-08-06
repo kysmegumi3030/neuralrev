@@ -44,13 +44,16 @@ juce_flutter_add_plugin(${PROJECT_NAME}
     # Standalone 也一并去掉（它属同一缺省集，且要额外分发 AOT framework
     # 与 flutter_assets）；若要用它免 DAW 跑 Flutter UI，把 Standalone 加回来。
     FORMATS                  VST3
-    EDITOR_WIDTH             760
-    EDITOR_HEIGHT            460
-    EDITOR_MIN_WIDTH         380
-    EDITOR_MIN_HEIGHT        230
-    EDITOR_MAX_WIDTH         1520
-    EDITOR_MAX_HEIGHT        920
-    EDITOR_FIXED_ASPECT      "760.0/460.0"
+    # 设计盒是 plugin_ui.dart 的 _kDesignW/_kDesignH = 1500×470（两块踏板并排）。
+    # 这里的所有尺寸都必须落在 1500:470 这条比例线上，否则 FittedBox 会加黑边。
+    # 缺省取设计盒的 0.8 倍，免得在 1440p 笔记本上一开就顶满屏。
+    EDITOR_WIDTH             1200
+    EDITOR_HEIGHT            376
+    EDITOR_MIN_WIDTH         750
+    EDITOR_MIN_HEIGHT        235
+    EDITOR_MAX_WIDTH         1800
+    EDITOR_MAX_HEIGHT        564
+    EDITOR_FIXED_ASPECT      "1500.0/470.0"
     DSP_SOURCES
         src/dsp/PluginParameters.cpp
         src/dsp/PluginParameters.h
