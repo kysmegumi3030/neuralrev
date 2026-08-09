@@ -158,14 +158,14 @@ def main() -> int:
         tau_bb = xcorr_tau(a, c, AT + d - 200, 6000)
 
         # ② 12–14 kHz 自己的相位斜率 ⇒ τ_HF
-        ratio = C[keep] / np.where(np.abs(A[keep]) > 1e-30, A[keep], 1e-30)
+        ratio = Cs[keep] / np.where(np.abs(A[keep]) > 1e-30, A[keep], 1e-30)
         ph = np.unwrap(np.angle(ratio))
         fk = f[keep]
         sl, ic = np.polyfit(fk, ph, 1)
         tau_hf = -sl / (2.0 * np.pi)
         resid = float(np.std(ph - (sl * fk + ic)))
 
-        med0, wst0 = band_stats(A, C, keep)
+        med0, wst0 = band_stats(A, Cs, keep)
 
         # ③ 判决性：按 −τ_HF 补偿候选，重算
         c2 = frac_shift(c, -tau_hf)
