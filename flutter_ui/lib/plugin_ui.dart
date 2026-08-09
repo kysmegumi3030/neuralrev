@@ -198,6 +198,7 @@ class _DelayPedal extends StatelessWidget {
               children: [
                 // ---- 上排：DRY/WET、TIME L、TIME R、FEEDBACK ----
                 // SYNC 开 ⇒ TIME L/R 被 NOTE 覆盖，变暗提示
+                // MONO 模式 ⇒ TIME R 无效（仅左声道），变暗提示
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
@@ -207,7 +208,7 @@ class _DelayPedal extends StatelessWidget {
                       child: _knob(bridge, 'd_timel', 'TIME L', size: 66),
                     ),
                     Opacity(
-                      opacity: synced ? 0.35 : 1.0,
+                      opacity: (synced || !stereo) ? 0.35 : 1.0,
                       child: _knob(bridge, 'd_timer', 'TIME R', size: 66),
                     ),
                     _knob(bridge, 'd_feedback', 'FEEDBACK', size: 66),
