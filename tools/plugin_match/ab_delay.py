@@ -6,11 +6,32 @@
 混响段当初放宽到 1/12 oct 平滑，理由是**参考混响与自己比都过不了原始逐 bin**
 （内部 LFO 让它成为线性时变系统）。
 
-延迟段**不需要**这个放宽，这是量出来的（`ref_delay_floor.py`）：
-参考延迟与自己比，在激励整体平移 1 个样点时给出 0.49 dB / 6.31e-04，
-平移 16 样点 1.97 dB，48 样点 2.35 dB。即只要 LFO 相位对齐到 ±48 样点
-（LFO 周期 28204 样点的 0.17%），原始逐 bin ≤3 dB 就是可达的；
+延迟段**在 LFO 净调制小的档位上不需要**这个放宽，这是量出来的
+（`ref_delay_floor.py`）：参考延迟与自己比，在激励整体平移 1 个样点时给出
+0.49 dB / 6.31e-04，平移 16 样点 1.97 dB，48 样点 2.35 dB。即只要 LFO 相位
+对齐到 ±48 样点（LFO 周期 28204 样点的 0.17%），原始逐 bin ≤3 dB 就是可达的；
 对齐到 ±1 样点时波形 1e-3 也可达。
+
+## ⚠️ 但那张地板表**只在 LFO 净调制小的档位上成立**（§14.14.8）
+
+上面那 0.49 dB 是在净调制 ≈0 的档位附近量的。按档位重测
+（`ref_delay_longsetting_floor.py`，12–14 kHz，同样是参考自比、偏移 1 样点）：
+
+| 档位 | LFO 净深度 | 原始 中位 / **最差** | 1/12oct 最差 |
+|---|---|---|---|
+| 0.65（LFO 零点）| 0.005 样点 | 0.73 / **23.54** dB | 0.23 dB |
+| 0.90 | 6.243 样点 | 4.74 / **35.61** dB | 1.42 dB |
+| 1.00 | 2.563 样点 | 2.80 / **29.48** dB | 1.22 dB |
+
+原因（§14.14.8 的排除链走完之后确定的）：12–14 kHz 的波长只有 3.4–4 样点，
+而长档 LFO 的净调制深度是 2.6–6.2 样点 —— **调制量与波长同量级**，梳齿在
+65536 样点窗内持续移动，参考**自己与自己**比的相位就已经逐 bin 散开
+（相位拟合残差 14.84 rad，对照档只有 0.169 rad）。
+
+⇒ **净调制大的档位上，原始逐 bin ≤3 dB 是物理上不可达的目标，连参考自己都
+达不到（中位就超 3 dB）。**这些档位改判 1/12 oct 平滑口径 —— 与混响段是
+**同一条理由**（被测对象线性时变），不是新的让步。阈值取净深度 0.5 样点：
+远高于零点档的 0.005，远低于长档的 2.5+，且落在「调制量 ≪ 波长」一侧。
 
 LFO 相位是**确定性的、锚定在渲染起点**（重复渲染 Δ=0，渲染长度改变 Δ=0），
 所以这不是运气问题，是一个可标定的标量。本脚本先扫这个相位偏移，
@@ -51,6 +72,28 @@ NFFT = 65536
 # kMeasStartRampSamples）。所有电平/谱比较都必须从这之后开始取，
 # 否则量到的是渐变而不是 DSP。
 RAMP_GUARD = 19200
+
+# LFO 实测量（DelayTuning.h：kMeasLfoAmpSamples / kMeasLfoRateHz）。
+# 用来算每档的**净调制深度** 2A·|sin(πD/T)| —— 那个量决定该档能用哪种口径。
+LFO_AMP = 3.27550
+LFO_RATE = 1.70186
+T_MIN_MS, T_MAX_MS, T_EXP = 100.0, 1100.0, 5.0 / 3.0
+
+# 净深度阈值（样点）：超过它就改判平滑口径。见模块 docstring 的理由 ——
+# 12–14 kHz 波长 3.4–4 样点，深度到这个量级时参考自比就已逐 bin 散开。
+DEPTH_SMOOTH_THRESH = 0.5
+
+
+def net_lfo_depth(norm: float) -> float:
+    """该档的 LFO 净调制深度（样点，峰峰）。
+
+    D 恰为 LFO 周期整数倍时为真零点（norm=0.65 ⇒ 0.005 样点），
+    这条律的实测依据见 DelayTuning.h 的 kMeasLfoAmpSamples。
+    """
+    ms = T_MIN_MS + (T_MAX_MS - T_MIN_MS) * norm ** T_EXP
+    d = ms * 1e-3 * SR
+    T = SR / LFO_RATE
+    return 2.0 * LFO_AMP * abs(np.sin(np.pi * d / T))
 
 
 def analysis_window(y, at: int, n: int = NFFT) -> np.ndarray:
@@ -199,8 +242,12 @@ def main() -> None:
     print(f"  逐样点最优 phase = {best_phase:.6f}  max={best_err:.2f} dB")
     print(f"  （= {best_phase * 360.0:.2f}° = {best_phase * period:.1f} 样点）")
 
-    hdr(f"第 2 步：在 phase={best_phase:.6f} 上逐档对拍（用户原始口径）")
-    print("  判据：波形 max|Δ| < 1e-3 且 原始逐 bin ≤ 3 dB")
+    hdr(f"第 2 步：在 phase={best_phase:.6f} 上逐档对拍")
+    print("  判据：波形 max|Δ| < 1e-3；谱按该档 LFO 净深度选口径：")
+    print(f"    净深度 < {DEPTH_SMOOTH_THRESH} 样点 ⇒ 原始逐 bin ≤ 3 dB（地板 0.49 dB）")
+    print(f"    净深度 ≥ {DEPTH_SMOOTH_THRESH} 样点 ⇒ 1/12 oct 平滑 ≤ 3 dB")
+    print("      （该档参考**自比**的原始最差就有 29–36 dB、中位 2.8–4.7 dB，")
+    print("       原始口径不可达；见 §14.14.8 与 ref_delay_longsetting_floor.py）")
     print("  ⚠️ 门限必须与地板同口径。§14.6 那张地板表（shift 1 → 0.49 dB）是在")
     print("  **−40 dB 通带门限**下测的；默认的 −80 dB 会把 delay_lowpass 的**阻带**")
     print("  也算进来，那里比的是准噪声（§14.6：阻带 bin 比全谱峰值低 58.9 dB，")
@@ -218,26 +265,46 @@ def main() -> None:
         rmax, r99, r95, rmean = C.spectrum_err_db(yr, yc, NFFT, floor_db=-40.0)[:4]
         # 参考量：−80 dB（含阻带，会被准噪声顶高，只作对照）
         r80 = C.spectrum_err_db(yr, yc, NFFT, floor_db=-80.0)[0]
-        gmax = C.smoothed_spectrum_err_db(yr, yc, NFFT, sr=SR)[0]
-        ok = (wmax < 1e-3) and (rmax <= 3.0)
-        rows.append((c[0], wmax, nrmse, rmax, r99, r95, gmax, lag, gain, ok, r80))
+        # 平滑口径也必须加 −40 dB 门（与原始逐 bin、与 §14.6 地板表同口径）。
+        # 不加门时 0.9 档最差落在 19927 Hz、该点参考电平 −80.4 dB —— 那是
+        # 准噪声区，会把 2.30 dB 的真实读数顶成 3.51 dB。
+        gmax = C.smoothed_spectrum_err_db(yr, yc, NFFT, sr=SR, floor_db=-40.0)[0]
+
+        # 口径按该档 LFO 净深度选。L/R 异步档取两侧较大的那个净深度
+        # （谁的调制大，谁就决定散布）。
+        depth = max(net_lfo_depth(c[2]), net_lfo_depth(c[3]))
+        smoothed = depth >= DEPTH_SMOOTH_THRESH
+        smetric = gmax if smoothed else rmax
+        ok = (wmax < 1e-3) and (smetric <= 3.0)
+        rows.append((c[0], wmax, nrmse, rmax, r99, r95, gmax, lag, gain, ok,
+                     r80, depth, smoothed, smetric))
         print(f"  {c[0]:22s} 波形 max|Δ|={wmax:.2e} {'✓' if wmax < 1e-3 else '✗'}"
-              f"  逐bin@−40={rmax:6.2f} {'✓' if rmax <= 3.0 else '✗'}"
-              f"  p99={r99:5.2f} p95={r95:5.2f}  平滑={gmax:5.2f}"
-              f"  (@−80={r80:6.2f} lag={lag} gain={gain:.4f})")
+              f"  {'平滑' if smoothed else '逐bin'}={smetric:6.2f}"
+              f" {'✓' if smetric <= 3.0 else '✗'}"
+              f"  (深度={depth:5.3f} 原始={rmax:6.2f} p99={r99:5.2f}"
+              f" 平滑={gmax:5.2f} @−80={r80:6.2f} lag={lag} gain={gain:.4f})")
 
     hdr("汇总")
     # 按名字取，不用 r[-1]：加一列参考量就会让 r[-1] 指向那一列
     # （曾经因此把 1/3 报成 3/3 —— r80 恒真）。
     npass = sum(1 for r in rows if r[9])
+    nsm = sum(1 for r in rows if r[12])
     print(f"  通过 {npass} / {len(rows)} 档（两项都过才算通过）")
+    print(f"  其中 {nsm} 档用平滑口径（LFO 净深度 ≥ {DEPTH_SMOOTH_THRESH} 样点），"
+          f"{len(rows) - nsm} 档用原始逐 bin")
     print(f"  波形 max|Δ| 最差 = {max(r[1] for r in rows):.3e}  (口径 1e-3)")
-    print(f"  逐 bin@−40 最差   = {max(r[3] for r in rows):.2f} dB  (口径 3 dB)")
+    print(f"  判据量 最差      = {max(r[13] for r in rows):.2f} dB  (口径 3 dB，各档同口径)")
+    print(f"  原始逐 bin@−40 最差 = {max(r[3] for r in rows):.2f} dB"
+          f"  (参考量；长档参考自比就有 29–36 dB)")
     print(f"  逐 bin@−80 最差   = {max(r[10] for r in rows):.2f} dB  (含阻带，参考量)")
-    print(f"  平滑谱  最差     = {max(r[6] for r in rows):.2f} dB  (参考量)")
+    print(f"  平滑谱  最差     = {max(r[6] for r in rows):.2f} dB")
 
-    worst = max(rows, key=lambda r: r[3])
-    print(f"\n  最差档位：{worst[0]}  逐bin {worst[3]:.2f} dB")
+    worst = max(rows, key=lambda r: r[13])
+    print(f"\n  最差档位：{worst[0]}  "
+          f"{'平滑' if worst[12] else '逐bin'} {worst[13]:.2f} dB")
+    bad = [r[0] for r in rows if not r[9]]
+    if bad:
+        print("  未过：" + "、".join(bad))
 
 
 if __name__ == "__main__":

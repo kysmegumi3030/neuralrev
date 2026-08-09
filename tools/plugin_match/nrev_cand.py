@@ -132,7 +132,8 @@ def spectrum_err_db(ref, cand, nfft=65536, floor_db=-80.0):
 
 
 def smoothed_spectrum_err_db(ref, cand, nfft=65536, oct_frac=1 / 12,
-                             f_lo=20.0, f_hi=20000.0, sr=48000):
+                             f_lo=20.0, f_hi=20000.0, sr=48000,
+                             floor_db=None):
     """1/N 倍频程 RMS 平滑后的逐 bin 误差（dB）——**主验收口径**。
 
     为什么用平滑口径：参考混响是线性**时变**的（内部 LFO 调制延迟线，
@@ -142,6 +143,18 @@ def smoothed_spectrum_err_db(ref, cand, nfft=65536, oct_frac=1 / 12,
 
     平滑后的谱对 LFO 相位不敏感：参考自比在 1 ms 位移下 max 仅 0.10 dB、
     4800 样点位移下 1.72 dB。因此「平滑后 ≤3 dB」既可达又能严格约束音色。
+
+    ## floor_db：**电平门**（延迟段必须给，混响段沿用 None）
+
+    不给门时全带每个 bin 都算，包括参考比全谱峰值低 60–80 dB 的那些 ——
+    那里参考自己就是准噪声，比的不是失配。实测（延迟 0.9 档）：无门时最差
+    **3.51 dB @ 19927 Hz**，而该点参考电平是 **−80.4 dB**；加 −40 dB 门后
+    最差变成 **2.30 dB @ 13902 Hz**（真信号区）。前者会把一个通过的实现
+    判成失败。
+
+    这与 `spectrum_err_db` 已经有的 floor_db 是同一条纪律，也与 §14.6
+    「门限必须与地板同口径」一致 —— 那张地板表就是在 −40 dB 门下测的。
+    混响段的历史读数是在无门下取的，故默认保持 None 以免破坏可比性。
 
     返回 (max, p99, p95, mean)。
     """
@@ -166,6 +179,10 @@ def smoothed_spectrum_err_db(ref, cand, nfft=65536, oct_frac=1 / 12,
 
     As, Bs = smooth(A), smooth(B)
     m = (f >= f_lo) & (f <= f_hi)
+    if floor_db is not None:
+        # 门用**未平滑**的参考谱取（与 spectrum_err_db 同口径）：平滑会把
+        # 低电平区抬起来，用平滑谱设门等于让门自己漏掉该挡的东西。
+        m &= A > A.max() * 10.0 ** (floor_db / 20.0)
     err = np.abs(20 * np.log10(np.maximum(Bs[m], 1e-30) / np.maximum(As[m], 1e-30)))
     return (float(err.max()), float(np.percentile(err, 99)),
             float(np.percentile(err, 95)), float(err.mean()))
