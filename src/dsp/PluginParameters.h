@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file  PluginParameters.h
  * @brief 插件参数系统的「单一事实来源」
  *
@@ -100,7 +100,8 @@ namespace ParamID
     extern const juce::String D_HIGHPASS;  ///< HIGH PASS   20 – 800 Hz      幂律 n^(5/3)
     extern const juce::String D_STEREO;    ///< Stereo / Mono（true = Stereo，零交叉馈送）
     extern const juce::String D_SYNC;      ///< 时长同步到 tempo（用 D_NOTE 档位）
-    extern const juce::String D_NOTE;      ///< Sync 音符档位 0–20（两端被 100–1100 ms 截断）
+    extern const juce::String D_NOTE;      ///< Sync 音符档位 0–20 L（两端被 100–1100 ms 截断）
+    extern const juce::String D_NOTER;     ///< Sync 音符档位 0–20 R（Stereo Sync 时右声道独立）
     extern const juce::String D_TEMPO;     ///< TEMPO       40 – 240 BPM     线性
 
 } // namespace ParamID

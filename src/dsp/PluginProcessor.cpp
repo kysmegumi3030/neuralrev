@@ -183,10 +183,24 @@ void JuceFlutterPluginProcessor::applyDelayParams() noexcept
 
     if (dSync_.load())
     {
-        const int note = static_cast<int>(std::lround(dNote_.load()));
-        const float ms = static_cast<float>(
-            nrev::delaytuning::syncNoteMs(note, dTempo_.load()));
-        msL = msR = ms;
+        if (dStereo_.load())
+        {
+            // Stereo Sync：左右声道独立音符
+            const int noteL = static_cast<int>(std::lround(dNote_.load()));
+            const int noteR = static_cast<int>(std::lround(dNoteR_.load()));
+            msL = static_cast<float>(
+                nrev::delaytuning::syncNoteMs(noteL, dTempo_.load()));
+            msR = static_cast<float>(
+                nrev::delaytuning::syncNoteMs(noteR, dTempo_.load()));
+        }
+        else
+        {
+            // Mono Sync：左右共用同一音符
+            const int note = static_cast<int>(std::lround(dNote_.load()));
+            const float ms = static_cast<float>(
+                nrev::delaytuning::syncNoteMs(note, dTempo_.load()));
+            msL = msR = ms;
+        }
     }
 
     delay_.setParameters(dDryWet_.load(), msL, msR, dFeedback_.load(),
@@ -251,9 +265,6 @@ void JuceFlutterPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // 记录每帧大小（供 CONSOLE 性能条显示；bypass 时也应保持有效）
     lastBlockSize_.store(numSamples, std::memory_order_relaxed);
 
-    // BYPASS 检查
-    if (bypassed_.load()) return;
-
     // 清除多余输出通道
     for (int i = numInputChannels; i < getTotalNumOutputChannels(); ++i)
         buffer.clear(i, 0, numSamples);
@@ -275,7 +286,9 @@ void JuceFlutterPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // 延迟段关闭时**完全跳过**它，避免把无声的湿路饱和结果混进干路。
     if (dActive_.load())
         delay_.process(context);
-    reverb_.process(context);
+    // BYPASS 只旁通混响自身，前级 Delay 仍然生效
+    if (!bypassed_.load())
+        reverb_.process(context);
     const auto t1 = juce::Time::getHighResolutionTicks();
 
     const double ns = 1.0e9 * static_cast<double>(t1 - t0)
@@ -312,6 +325,7 @@ void JuceFlutterPluginProcessor::parameterChanged(const juce::String& parameterI
         else if (parameterID == ParamID::D_STEREO)   dStereo_   = (newValue > 0.5f);
         else if (parameterID == ParamID::D_SYNC)     dSync_     = (newValue > 0.5f);
         else if (parameterID == ParamID::D_NOTE)     dNote_     = newValue;
+        else if (parameterID == ParamID::D_NOTER)    dNoteR_    = newValue;
         else if (parameterID == ParamID::D_TEMPO)    dTempo_    = newValue;
         else return;
 

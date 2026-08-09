@@ -1,4 +1,4 @@
-﻿#include "PluginParameters.h"
+#include "PluginParameters.h"
 
 // ============================================================
 // ParamID — 字符串常量定义
@@ -27,6 +27,7 @@ namespace ParamID
     const juce::String D_STEREO   = "d_stereo";
     const juce::String D_SYNC     = "d_sync";
     const juce::String D_NOTE     = "d_note";
+    const juce::String D_NOTER    = "d_noter";
     const juce::String D_TEMPO    = "d_tempo";
 
 } // namespace ParamID
@@ -96,6 +97,7 @@ const std::vector<ParameterDef>& getAllParameterDefs()
         { ParamID::D_STEREO,   "STEREO",      "",       0.0f,     1.0f,     1.0f,     1.0f,                1.0f,  true,  "toggle" },
         { ParamID::D_SYNC,     "SYNC",        "",       0.0f,     1.0f,     0.0f,     1.0f,                1.0f,  true,  "toggle" },
         { ParamID::D_NOTE,     "NOTE",        "",       0.0f,    20.0f,    13.0f,     1.0f,                1.0f,  false, "knob"   },
+        { ParamID::D_NOTER,    "NOTE R",      "",       0.0f,    20.0f,    13.0f,     1.0f,                1.0f,  false, "knob"   },
         { ParamID::D_TEMPO,    "TEMPO",       "BPM",   40.0f,   240.0f,   120.0f,     1.0f,                0.0f,  false, "knob"   },
     };
     return defs;

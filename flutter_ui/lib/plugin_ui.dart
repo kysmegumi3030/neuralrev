@@ -158,7 +158,7 @@ class _ReverbPedal extends StatelessWidget {
 // 11 个控件（对标参考插件延迟段的全部可调量，见 docs/REFERENCE.md §14.1）：
 //   旋钮 6：DRY/WET、TIME L、TIME R、FEEDBACK、LOW PASS、HIGH PASS
 //   开关 2：STEREO（Stereo/Mono）、SYNC（自由 ms / 跟随节拍）
-//   同步档 2：NOTE（21 档）、TEMPO（40…240 BPM）
+//   同步档：NOTE（Mono Sync）或 NOTE L + NOTE R（Stereo Sync）+ TEMPO（40…240 BPM）
 //   踏钉 1：DELAY 段启用（d_active）
 //
 // SYNC 关时 NOTE/TEMPO 对 DSP 无影响（PluginProcessor 里按 dSync_ 分支），
@@ -215,12 +215,22 @@ class _DelayPedal extends StatelessWidget {
                     _knob(bridge, 'd_lowpass', 'LOW PASS', size: 66),
                     _knob(bridge, 'd_highpass', 'HIGH PASS', size: 66),
                     // SYNC 关 ⇒ NOTE/TEMPO 不参与 DSP，整组变暗
+                    // Stereo + Sync ⇒ 左右声道独立 NOTE 旋钮
+                    // Mono + Sync   ⇒ 单个 NOTE 旋钮（左右共用）
                     Opacity(
                       opacity: synced ? 1.0 : 0.35,
                       child: Row(
                         children: [
-                          _knob(bridge, 'd_note', 'NOTE',
-                              size: 66, fmt: _noteName),
+                          if (synced && stereo) ...[
+                            _knob(bridge, 'd_note', 'NOTE L',
+                                size: 66, fmt: _noteName),
+                            const SizedBox(width: 10),
+                            _knob(bridge, 'd_noter', 'NOTE R',
+                                size: 66, fmt: _noteName),
+                          ] else ...[
+                            _knob(bridge, 'd_note', 'NOTE',
+                                size: 66, fmt: _noteName),
+                          ],
                           const SizedBox(width: 10),
                           _knob(bridge, 'd_tempo', 'TEMPO', size: 66),
                         ],

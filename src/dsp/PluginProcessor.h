@@ -149,7 +149,8 @@ private:
     std::atomic<float> dHighpass_ { 20.0f };     // Hz
     std::atomic<bool>  dStereo_   { true };
     std::atomic<bool>  dSync_     { false };
-    std::atomic<float> dNote_     { 13.0f };     // 档位索引 0–20
+    std::atomic<float> dNote_     { 13.0f };     // 档位索引 0–20（L；Mono Sync 时左右共用）
+    std::atomic<float> dNoteR_    { 13.0f };     // 档位索引 0–20（R；仅 Stereo Sync 时生效）
     std::atomic<float> dTempo_    { 120.0f };    // BPM
     std::atomic<bool>  delayDirty_ { true };
 
