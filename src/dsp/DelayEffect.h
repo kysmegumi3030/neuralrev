@@ -6,13 +6,18 @@
  *
  *   in ──┬─────────────────────────────────── ×dry ──────────────────┬── out
  *        │                                                          │
- *        └─→ [延迟线 D，LFO 调制写指针] → [FIR] → [HP] → [LP] ─┬─→ [预延迟 16] → ×wet → [饱和] ─┘
+ *        └─→ [延迟线 D，LFO 调制写指针] → [FIR] → [HP] → [LP] ─┬─→ [预延迟 20.509] → ×wet → [饱和] ─┘
  *                    ↑                                        │
  *                    └────────────────── ×fb ─────────────────┘
  *
- * 注意那 16 样点的固定预延迟在**抽头之后**、不在环内：逐圈累积延迟的增量
+ * 注意那 20.509 样点的固定预延迟在**抽头之后**、不在环内：逐圈累积延迟的增量
  * 把这两种拓扑分开了（参考 11.37 样点/圈 = FIR 群延迟，而不是 16+gd），
- * 依据见 DelayCore.hpp 的 WetPreDelay。
+ * 依据见 DelayCore.hpp 的 WetPreDelay。它 = 整数 16（onset 判据）+ 分数 4.509
+ * （反卷积判据）；两个判据各自只能定一半，见 DelayTuning.h 的
+ * kMeasWetPreDelayFrac。
+ *
+ * ×fb 里含环内平项 0.995283：抽头表已归一到 DC 增益 1，那 0.45% 的平损不在
+ * 核里。实测候选每圈曾高 0.497%，反解 0.995052 —— 与常数差 0.02%。
  *
  * 与 ReverbEffect.h 同一套接口约定：prepare / reset / process，
  * 外加 setParametersNormalized()（供离线渲染器与 A/B 脚本按归一值驱动，
@@ -47,6 +52,15 @@ public:
 
         for (auto& l : line_) l.prepare(maxD, head);
 
+        // 干路延迟：48 kHz 上是实测的 51 样点，其它率按比例折算并四舍五入。
+        // 折算而不是照抄：这一项的物理身份是**时间**（1.0625 ms），
+        // 而参考在非 48 kHz 上自报 63/114/120 —— 与按比例的 46.9/93.7/102
+        // 都不吻合（参考内部在重采样，见 DelayTuning.h 的 ⚠️）。
+        // 这里取时间不变，因为那是唯一有实测支撑的解释。
+        dryLatency_ = static_cast<int>(std::lround(
+            delaytuning::kMeasDryLatencySamples48k * sr_ / delaytuning::kRefSampleRate));
+        for (auto& d : dryLat_) d.prepare(dryLatency_);
+
         reset();
         applyParams();
     }
@@ -65,6 +79,7 @@ public:
         for (auto& f : loopHp_) f.reset();
         for (auto& f : fixedFir_) f.reset();
         for (auto& d : wetPre_) d.reset();
+        for (auto& d : dryLat_) d.reset();
         fbState_[0] = fbState_[1] = 0.0f;
     }
 
@@ -135,9 +150,22 @@ public:
             }
             else
             {
-                // Mono：两路输入求和喂一条线，两个输出取同一条
-                // （实测两输出在同一延迟处给出同一峰值 2.164e-04）
-                const float sum = inL + inR;
+                // Mono：两路输入**取平均**（不是求和）喂一条线，两输出取同一条。
+                //
+                // ⚠️ 原先写 inL + inR，依据是「两输出在同一延迟处给出同一峰值」
+                // —— 那条只证明**两个输出相等**，对系数 1 还是 1/2 完全是盲的
+                // （两种做法都给出两路相等的输出）。§14.11 同型：判据对要判的
+                // 那个自由度不敏感。
+                //
+                // 能判的读数：同一噪声突发、只改 delay_mode，比较**湿声 rms**。
+                // 参考 Mono 与 Stereo 的 rms 相等（5.4543e−03 vs 5.4544e−03，
+                // 差 0.002%），即参考在 Mono 下**不会**因为两路相加而响一倍；
+                // 候选当时是 1.1066e−02，正好 2.0288 倍。取平均后两侧同标度。
+                //
+                // 注意 ab_delay.py 的波形口径对这一项是盲的：waveform_diff 会
+                // 先解一个最佳标量增益再算残差，整体电平差被除掉了（Mono 档
+                // 报 gain=0.4974 就是这个 2 倍被吸收成了配平因子）。
+                const float sum = 0.5f * (inL + inR);
                 wetL = line_[0].process(sum + fbState_[0]);
                 wetR = wetL;
             }
@@ -168,10 +196,10 @@ public:
             if (stereo)
                 fbState_[1] = fb_ * filtR;
 
-            // 固定 16 样点预延迟：**在湿抽头上、不在反馈支路里**。
+            // 固定 20.509 样点预延迟：**在湿抽头上、不在反馈支路里**。
             // 这一条是量出来的（逐圈增量把两种拓扑分开，见 DelayCore.hpp
             // WetPreDelay 的注释）：参考每圈只累积 FIR 群延迟 11.37 样点，
-            // 而这 16 样点只在输出路径上过一次。放进环里会让每圈多吃 16，
+            // 而这一段只在输出路径上过一次。放进环里会让每圈多吃一个常数，
             // 症状是 fb=1.0 档逐圈滞后线性累积。
             //
             // 放在 ×wet 与饱和之前：纯延迟与逐样点无记忆的非线性可交换，
@@ -183,8 +211,21 @@ public:
             const float outWetL = sat_.process(wetGain_ * preL);
             const float outWetR = sat_.process(wetGain_ * preR);
 
-            chL[i] = dryGain_ * inL + outWetL;
-            if (chR) chR[i] = dryGain_ * inR + outWetR;
+            // 干路**延后 51 样点**（48 kHz），湿路不延。这不是拟合出来的
+            // 配平，是参考通过 getLatencySamples() 自报的量，且实测干路冲激
+            // 恰好落在 AT+51、单样点无拖尾。见 DelayTuning.h 的
+            // kMeasDryLatencySamples48k。
+            //
+            // ⚠️ 不能因为「DAW 会做延迟补偿」就省掉它：宿主补偿平移的是
+            // **整个输出**，干湿的相对关系不变。参考的干比它自己的湿晚
+            // 51 样点，那是 1.06 ms 的相对错位（梳状效应，听得见）。
+            //
+            // 这一项之前缺失，是 12 档对拍里**唯一**的波形超标档（干湿 0.5：
+            // max|Δ|=1.659e−03，lag=−51 —— 那个 lag 就是它的签名）。
+            // 注意波形口径本身对它半盲：waveform_diff 会先做整数对齐，
+            // 把 lag 吸收掉，剩下的错位才体现为残差。
+            chL[i] = dryLat_[0].process(dryGain_ * inL) + outWetL;
+            if (chR) chR[i] = dryLat_[1].process(dryGain_ * inR) + outWetR;
         }
     }
 
@@ -198,10 +239,23 @@ private:
 
         // 反馈：**按显示两位小数量化**后再乘上限 0.80。
         // 量化是实测的（同格内系数相同到 0.0002%），不是保守取整。
-        fb_ = static_cast<float>(feedbackFromNorm(nFeedback_));
+        //
+        // 再乘环内平项 kFitLoopFlatGain（0.995283）：抽头表已归一到 DC 增益 1，
+        // 那 0.45% 的平损不在核里，必须单独乘回来（见 DelayTuning.h 的 ⚠️）。
+        // 乘在**反馈支路**而不是滤波器输出上：这一项是从 L(f)（逐圈环路传递）
+        // 测出来的，是个逐圈量；乘在滤波器输出上会连 echo1 一起压低 0.47%，
+        // 而 echo1 的电平由 wetGain_ 单独标定过，那样会破坏已闭合的读数。
+        // 判据是两个读数必须同时闭合：逐圈增益比 → 1.000，且 echo1 峰值比不退。
+        fb_ = static_cast<float>(feedbackFromNorm(nFeedback_) * kFitLoopFlatGain);
 
-        const double dL = timeMsFromNorm(nTimeL_) * 1.0e-3 * sr_;
-        const double dR = timeMsFromNorm(nTimeR_) * 1.0e-3 * sr_;
+        // 环内额外的 kFitLoopExtraDelay（0.4017 样点）加在**延迟线基准**上，
+        // 于是它每圈各计一次 —— 这正是它的物理身份（逐圈量）。
+        //
+        // 为什么不加在 WetPreDelay 上：那里只过一次，加了只动 echo1，
+        // 而实测说 echo1 已经闭合（峰位差 −0.034）、第 2 圈起才短。
+        // 判据是两个读数必须**同时**闭合：逐圈重心回归斜率 → 0，且 echo1 不退。
+        const double dL = timeMsFromNorm(nTimeL_) * 1.0e-3 * sr_ + kFitLoopExtraDelay;
+        const double dR = timeMsFromNorm(nTimeR_) * 1.0e-3 * sr_ + kFitLoopExtraDelay;
         line_[0].setDelay(dL);
         line_[1].setDelay(dR);
 
@@ -232,8 +286,11 @@ private:
     /// 环内固定损耗（抗镜像核）：28 抽头 FIR，抽头是直接实测的。
     /// 见 DelayTuning.h kMeasLoopFirTaps —— 换掉了原来的两级二阶级联。
     std::array<LoopFir, 2> fixedFir_ {};
-    /// 固定 16 样点预延迟：只在湿抽头上过一次，**不在反馈环内**。
+    /// 固定 20.509 样点预延迟：只在湿抽头上过一次，**不在反馈环内**。
     std::array<WetPreDelay, 2> wetPre_ {};
+    /// 干路的 51 样点整数延迟（参考自报的延迟补偿量）
+    std::array<DryLatency, 2> dryLat_ {};
+    int dryLatency_ { delaytuning::kMeasDryLatencySamples48k };
     WetSaturator sat_ {};
     std::array<float, 2> fbState_ { 0.0f, 0.0f };
 

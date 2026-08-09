@@ -718,6 +718,16 @@ int runRender(PluginInstance& inst,
     }
     inst.processor->setProcessing(true);
 
+    // ---- 报告插件自报的延迟补偿量 ----
+    //
+    // 为什么要报：参考插件的**干路**比湿路晚 51 样点（48 kHz），而这 51 在
+    // global_bypass=1 下依然存在、在混响段也一样 ⇒ 它是整插件的固定延迟，
+    // 不是延迟算法的一部分。宿主若做延迟补偿（DAW 都做），用户听到的干湿是
+    // 对齐的，我们的候选就**不该**加这 51；若插件不自报，那 51 就是听得见
+    // 的真实错位，必须复刻。这条读数决定往哪边走，所以打到 stderr 上。
+    std::fprintf(stderr, "[vst3_render] latencySamples=%d\n",
+                 (int) inst.processor->getLatencySamples());
+
     // ---- 读入全部输入 ----
     std::vector<float> interleaved;
     {

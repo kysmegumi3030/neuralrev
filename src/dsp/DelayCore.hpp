@@ -273,7 +273,7 @@ private:
 };
 
 // ============================================================
-// WetPreDelay —— 固定 16 样点整数延迟，只在**湿抽头**上过一次
+// WetPreDelay —— 固定 **20.509** 样点延迟，只在**湿抽头**上过一次
 // ------------------------------------------------------------
 // 为什么它不在反馈环内（这一条是量出来的，不是设计选择）：
 // 逐圈累积延迟的**增量**把两种拓扑区分开了
@@ -312,10 +312,15 @@ public:
     static constexpr int kNodes = kOrder + 1;
     static constexpr int kHalf  = kOrder / 2;
 
-    /// 总延迟 = 整数 16 + 分数 4.509
+    /// 总延迟 = 整数 16 + 湿抽头**净**分数 4.1073。
+    ///
+    /// 是净值而非 4.509：那 4.509 是整条湿路径的量（由 echo1 定），其中
+    /// 0.4017 属于**环内**（逐圈量，由逐圈重心回归定，见 DelayTuning.h
+    /// 的 kFitLoopExtraDelay）。两项之和必须守恒 = 4.509，否则闭合了逐圈
+    /// 就会破坏 echo1。
     static constexpr double kTotal =
         static_cast<double>(delaytuning::kMeasLoopPreDelaySamples)
-        + delaytuning::kMeasWetPreDelayFrac;
+        + delaytuning::kFitWetPreDelayFracNet;
 
     /// 缓冲要装下最远的节点：floor(kTotal) + kHalf，再留几格余量。
     static constexpr int kLen = static_cast<int>(kTotal) + kHalf + 4;
@@ -364,6 +369,48 @@ private:
     std::array<float, static_cast<size_t>(kLen)> z_ {};
     std::array<float, kNodes> c_ {};
     int di_ { 0 };
+    int pos_ { 0 };
+};
+
+/// 干路的**纯整数**延迟（参考自报的 51 样点延迟补偿量，见 DelayTuning.h
+/// 的 kMeasDryLatencySamples48k）。
+///
+/// 为什么不复用 WetPreDelay：那是 15 阶 Lagrange 分数延迟，为了 4.1073 那个
+/// 小数存在。这里的量是**整数**（实测干路冲激是单样点、无拖尾），用分数插值
+/// 只会引入本不存在的旁瓣。一个环形缓冲 + 读指针就够，且干路上没有滤波，
+/// 这样能保持「冲激进、冲激出」的机器精度。
+class DryLatency
+{
+public:
+    /// n 为整数样点数；按采样率折算后可能超过 48 kHz 的 51，留够余量。
+    void prepare(int n)
+    {
+        n_ = std::max(0, n);
+        z_.assign(static_cast<size_t>(n_) + 1, 0.0f);
+        pos_ = 0;
+    }
+
+    void reset() noexcept
+    {
+        std::fill(z_.begin(), z_.end(), 0.0f);
+        pos_ = 0;
+    }
+
+    inline float process(float x) noexcept
+    {
+        if (n_ <= 0) return x;
+        const int len = static_cast<int>(z_.size());
+        z_[static_cast<size_t>(pos_)] = x;
+        int rd = pos_ - n_;
+        if (rd < 0) rd += len;
+        const float y = z_[static_cast<size_t>(rd)];
+        if (++pos_ >= len) pos_ = 0;
+        return y;
+    }
+
+private:
+    std::vector<float> z_ {};
+    int n_ { 0 };
     int pos_ { 0 };
 };
 

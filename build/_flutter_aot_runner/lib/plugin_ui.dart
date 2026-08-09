@@ -14,6 +14,9 @@ import 'widgets/panel_toggle.dart';
 /// 踏板，各有自己的面板、手写体标与踏钉开关，所以这里也并排两块而不是
 /// 塞进一块面板 —— 后者会让 11 个延迟参数与 5 个混响参数混在一起，
 /// 和参考的物理布局对不上。
+///
+/// 摆放顺序 = **信号链顺序**：延迟在左、混响在右，与 DSP 里
+/// delay_ → reverb_ 的处理次序一致（PluginProcessor.cpp:276-278）。
 const double _kDesignW = 1500;
 const double _kDesignH = 470;
 
@@ -34,13 +37,17 @@ class PluginMainPage extends StatelessWidget {
               height: _kDesignH,
               child: const Padding(
                 padding: EdgeInsets.all(22),
+                // 左→右 = 信号流向。DSP 里是 delay_.process() 再
+                // reverb_.process()（PluginProcessor.cpp:276-278），
+                // 所以延迟在左、混响在右 —— 面板顺序必须与链序一致，
+                // 否则用户按界面从左到右读到的是错的信号流。
                 child: Row(
                   children: [
+                    // 延迟踏板（宽，11 个控件）——在链上靠前
+                    Expanded(child: _DelayPedal()),
+                    SizedBox(width: 16),
                     // 混响踏板（窄，5 个旋钮）
                     SizedBox(width: 600, child: _ReverbPedal()),
-                    SizedBox(width: 16),
-                    // 延迟踏板（宽，11 个控件）
-                    Expanded(child: _DelayPedal()),
                   ],
                 ),
               ),

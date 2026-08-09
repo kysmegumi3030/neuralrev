@@ -51,10 +51,10 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			4SNiHUyNEIqucv4S7162asYmN2k=
+			PMO+BUbaawbHrg0G5EElkLgUwf8=
 			</data>
 			<key>requirement</key>
-			<string>cdhash H"e123621d4c8d108aae72fe12ef5eb66ac6263769" or cdhash H"a9f84a08104272880c4c2f1f495da2bb58884a9e"</string>
+			<string>cdhash H"3cc3be0546da6b06c7ae0d06e4412590b814c1ff" or cdhash H"be7b5d650079fbad5d3a13d2a2d25e3c6c507b17"</string>
 		</dict>
 		<key>Frameworks/FlutterMacOS_NeuralRev.framework</key>
 		<dict>

@@ -1,5 +1,5 @@
 # ninja log v7
-2	38	1785996579085756859	/Users/realmac/Documents/trae_projects/neuralrev/build/_deps/juce-build/tools/CMakeFiles/cmake.verify_globs	335960cb24ee4651
+3	46	1786005527983761365	/Users/realmac/Documents/trae_projects/neuralrev/build/_deps/juce-build/tools/CMakeFiles/cmake.verify_globs	335960cb24ee4651
 38	91	1785846754967705662	extras/Build/juceaide/CMakeFiles/juceaide.dir/__/__/__/modules/juce_core/juce_core_CompilationTime.cpp.o	57596398573969bc
 37	276	1785846754966759404	extras/Build/juceaide/CMakeFiles/juceaide.dir/__/__/__/modules/juce_graphics/juce_graphics_Sheenbidi.c.o	6654b1c26e626b85
 39	1827	1785846754968246708	extras/Build/juceaide/CMakeFiles/juceaide.dir/__/__/__/modules/juce_data_structures/juce_data_structures.mm.o	d95c3a6e1270c5b
@@ -11,4 +11,4 @@
 37	6140	1785846754966618402	extras/Build/juceaide/CMakeFiles/juceaide.dir/__/__/__/modules/juce_graphics/juce_graphics_Harfbuzz.cpp.o	f976e669631c5944
 37	9675	1785846754966498526	extras/Build/juceaide/CMakeFiles/juceaide.dir/__/__/__/modules/juce_gui_basics/juce_gui_basics.mm.o	8232f9accaa88ffe
 9676	9871	1785846764605318310	extras/Build/juceaide/juceaide_artefacts/Debug/juceaide	55bc861f793dbba4
-3	46	1786005527983761365	/Users/realmac/Documents/trae_projects/neuralrev/build/_deps/juce-build/tools/CMakeFiles/cmake.verify_globs	335960cb24ee4651
+3	61	1786016567350917452	/Users/realmac/Documents/trae_projects/neuralrev/build/_deps/juce-build/tools/CMakeFiles/cmake.verify_globs	335960cb24ee4651

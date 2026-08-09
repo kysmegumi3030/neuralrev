@@ -48,7 +48,10 @@ from plugin_match import nrev_cand as C         # noqa: E402
 SR = 48000
 AT = 19200          # 过起始渐变（§14.10）
 AMP = 1e-3          # 线性区（§14.4：amp>0.03 进饱和）
-NROUND = 9
+# 16 圈而不是 9：斜率的标准误 ∝ 1/√Σ(k−k̄)² ，圈数从 9 加到 16
+# 让杠杆增大约 2.4 倍。fb=1.0 的环路增益 0.8，第 16 圈仍在 0.8^16 = 2.8%，
+# 重心口径够用（窗内 rms 会一并打印，可核对是否已沉到噪声）。
+NROUND = 16
 PRE = 64            # 窗左侧余量（容纳负向偏移）
 WIN = 1200
 
@@ -74,6 +77,45 @@ def rounds(y: np.ndarray, d: int) -> list[tuple[float, int, float]]:
         p = int(np.argmax(np.abs(seg))) - PRE
         out.append((c, p, float(np.sqrt(np.mean(seg ** 2)))))
     return out
+
+
+def drift_regression(ca: np.ndarray, cb: np.ndarray) -> None:
+    """漂移斜率：对**累积重心之差**做回归，而不是取相邻差的均值。
+
+    为什么换估计量：相邻差的均值只用到首末两点
+    （Σdiff/(N−1) ≡ (x_N − x_1)/(N−1)），中间 N−2 个点全部作废，
+    于是它的不确定度就是单点噪声除以 N−1 —— 而单点噪声（LFO 残余 + 重心
+    对窗内电平分布的敏感）的量级与要测的 0.4 样点/圈相当。回归用上所有点。
+
+    对**差**序列回归而不是各自回归再相减：LFO 摆动与那 ~4.4 样点未解释偏置
+    在两侧同相同量（已由 HP 扫描的差值列稳定性证实），在差里直接约掉。
+    残余的散布才是真正的随机误差，可以用来判斜率是否显著。
+    """
+    n = min(len(ca), len(cb))
+    k = np.arange(1, n + 1, dtype=float)
+    dif = np.asarray(cb[:n], float) - np.asarray(ca[:n], float)
+
+    # 一次多项式 + 残差 ⇒ 斜率的标准误（普通最小二乘）
+    slope, intercept = np.polyfit(k, dif, 1)
+    resid = dif - (slope * k + intercept)
+    dof = max(n - 2, 1)
+    s2 = float(np.dot(resid, resid)) / dof
+    sxx = float(np.dot(k - k.mean(), k - k.mean()))
+    se = float(np.sqrt(s2 / sxx)) if sxx > 0 else float("nan")
+
+    naive = (dif[-1] - dif[0]) / (n - 1) if n > 1 else float("nan")
+
+    print(f"\n{'=' * 78}")
+    print("漂移斜率（对累积重心之差回归，圈数为自变量）")
+    print(f"{'=' * 78}")
+    print(f"  差序列：{np.round(dif, 3)}")
+    tstat = abs(slope) / se if se > 0 else float("nan")
+    print(f"  斜率 = {slope:+.4f} ± {se:.4f} 样点/圈（|t| = {tstat:.2f}）")
+    print(f"  截距 = {intercept:+.4f} 样点（第 0 圈的常数偏移）")
+    print(f"  残差 std = {resid.std(ddof=1) if n > 2 else float('nan'):.4f} 样点")
+    print(f"  对照：相邻差均值口径给 {naive:+.4f}（只用到首末两点）")
+    print(f"\n  判读：|t| < 2 ⇒ 斜率与 0 不可区分，**不要**据此加分数延迟补偿；")
+    print(f"        |t| ≥ 2 ⇒ 漂移真实，环内补 {-slope:+.4f} 样点/圈。")
 
 
 def main() -> None:
@@ -121,6 +163,8 @@ def main() -> None:
     print(f"  候选逐圈增量：{np.round(db, 2)}")
     print(f"    均值 {db.mean():.3f}  标准差 {db.std():.3f}")
     print(f"\n  相对增量（候选 − 参考）= {db.mean() - da.mean():.3f} 样点/圈")
+
+    drift_regression(ca, cb)
 
     print(f"\n{'=' * 78}")
     print("判读")

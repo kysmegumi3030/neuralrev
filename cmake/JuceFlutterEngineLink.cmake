@@ -279,6 +279,33 @@ function(juce_flutter_link_engine)
         if(NOT EXISTS "${_codesign_tool}")
             set(_codesign_tool codesign)
         endif()
+
+        # 签名身份：默认 "-" 即 ad-hoc（本机加载与 --strict 校验都够用，
+        # 不用于分发时无需真证书）。要用企业证书就配置时传：
+        #   cmake -B build -DNREV_CODESIGN_IDENTITY="Developer ID Application: ..."
+        #
+        # ⚠️ 不要直接把企业名写死在这里：本机 `security find-identity -v -p
+        # codesigning` 报 0 valid identities（login 与 System 两个钥匙串都是），
+        # 也没有可导入的 .p12/.cer。写死一个不存在的身份不会得到「签好的包」，
+        # 而是让 codesign 直接失败、整个构建断在重签那一步 —— 比 ad-hoc 更糟。
+        # 证书装好后改这一个变量即可，六处重签共用它。
+        if(NOT DEFINED NREV_CODESIGN_IDENTITY OR NREV_CODESIGN_IDENTITY STREQUAL "")
+            set(NREV_CODESIGN_IDENTITY "-")
+        endif()
+        if(NOT NREV_CODESIGN_IDENTITY STREQUAL "-")
+            # 提前验一次：身份不存在就立刻报错，而不是等到 build 阶段某一步
+            # 失败、留下一个签了一半的 bundle。
+            execute_process(
+                COMMAND security find-identity -v -p codesigning
+                OUTPUT_VARIABLE _nrev_ids ERROR_QUIET)
+            if(NOT _nrev_ids MATCHES "${NREV_CODESIGN_IDENTITY}")
+                message(FATAL_ERROR
+                    "NREV_CODESIGN_IDENTITY='${NREV_CODESIGN_IDENTITY}' 在钥匙串里找不到。\n"
+                    "先 `security import <证书>.p12 -k ~/Library/Keychains/login.keychain-db`，"
+                    "再用 `security find-identity -v -p codesigning` 确认名称。")
+            endif()
+            message(STATUS "[codesign] 使用身份: ${NREV_CODESIGN_IDENTITY}")
+        endif()
         set(_install_name_tool "/usr/bin/install_name_tool")
         if(NOT EXISTS "${_install_name_tool}")
             set(_install_name_tool install_name_tool)
@@ -383,7 +410,7 @@ function(juce_flutter_link_engine)
                             "${_fw_dst}/Versions/A/FlutterMacOS"
                         # 改 Mach-O 后旧签名失效，随符号链接结构一起对整个 framework
                         # 重新 ad-hoc 签名（Apple Silicon 上必须重签才能加载）。
-                        COMMAND "${_codesign_tool}" --force --sign -
+                        COMMAND "${_codesign_tool}" --force --sign "${NREV_CODESIGN_IDENTITY}"
                             "${_fw_dst}"
                         COMMENT "复制并唯一化 FlutterMacOS.framework（含顶层符号链接修复）(id=${_fl_new_id}) (${_tgt})"
                         VERBATIM
@@ -393,7 +420,7 @@ function(juce_flutter_link_engine)
                     add_custom_command(TARGET ${_tgt} POST_BUILD
                         COMMAND "${_install_name_tool}" -change
                             "${_fl_orig_id}" "${_fl_new_id}" "$<TARGET_FILE:${_tgt}>"
-                        COMMAND "${_codesign_tool}" --force --sign - "$<TARGET_FILE:${_tgt}>"
+                        COMMAND "${_codesign_tool}" --force --sign "${NREV_CODESIGN_IDENTITY}" "$<TARGET_FILE:${_tgt}>"
                         COMMENT "改写 FlutterMacOS 引用并重签名 (${_tgt})"
                         VERBATIM
                     )
@@ -429,7 +456,7 @@ function(juce_flutter_link_engine)
                                 "${_app_fw}/Versions/A/App"
                             # 改 Mach-O 后旧签名失效，重新 ad-hoc 签名整个 framework
                             # （随符号链接结构一起签，Apple Silicon 上必须重签才能加载）。
-                            COMMAND "${_codesign_tool}" --force --sign -
+                            COMMAND "${_codesign_tool}" --force --sign "${NREV_CODESIGN_IDENTITY}"
                                 "${_app_fw}"
                             COMMENT "复制并唯一化 AOT App.framework install name（含顶层符号链接修复）(${_tgt})"
                             VERBATIM
@@ -452,9 +479,9 @@ function(juce_flutter_link_engine)
                             COMMAND "${_jf_python}" "${_jf_rename_script}"
                                 --role engine --project-name "${PROJECT_NAME}"
                                 "${_fw_dst}/Versions/A/FlutterMacOS"
-                            COMMAND "${_codesign_tool}" --force --sign - "${_app_fw}"
+                            COMMAND "${_codesign_tool}" --force --sign "${NREV_CODESIGN_IDENTITY}" "${_app_fw}"
                             # 对整个 framework 重签（覆盖符号链接结构，与顶层修复一致）
-                            COMMAND "${_codesign_tool}" --force --sign -
+                            COMMAND "${_codesign_tool}" --force --sign "${NREV_CODESIGN_IDENTITY}"
                                 "${_fw_dst}"
                             COMMENT "唯一化 Dart 快照符号防止多插件 UI 串台 (${_tgt})"
                             VERBATIM
@@ -475,12 +502,12 @@ function(juce_flutter_link_engine)
                     # 封条仍能加载，故此前「只有 AU 能扫到、VST3 扫不到」。
                     #
                     # 这里在所有 framework 改写完成之后，对整个外层 bundle 重签。
-                    # 内嵌 framework 已被上面各步正确签名，故外层 --force --sign -
+                    # 内嵌 framework 已被上面各步正确签名，故外层 --force --sign "${NREV_CODESIGN_IDENTITY}"
                     # （不带 --deep）只需重建外层封条即可通过 --verify --strict。
                     # 因是 foreach 内本目标注册的最后一条 POST_BUILD，保证在
                     # 拷贝/改写/内层重签全部完成后才执行。
                     add_custom_command(TARGET ${_tgt} POST_BUILD
-                        COMMAND "${_codesign_tool}" --force --sign -
+                        COMMAND "${_codesign_tool}" --force --sign "${NREV_CODESIGN_IDENTITY}"
                             "$<TARGET_BUNDLE_DIR:${_tgt}>"
                         COMMENT "重签外层 bundle 封条（修 VST3 扫描失败 / --strict）(${_tgt})"
                         VERBATIM

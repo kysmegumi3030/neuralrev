@@ -283,7 +283,14 @@ static void test_loop_loss()
     double worst = 0.0;
     for (int i = 0; i < 13; ++i)
     {
-        const double g = loop_gain(freqs[i], 1.0, 1.0, 0.0) / DT::kMeasFeedbackMax;
+        // 归一化必须除掉**实现里实际乘进反馈的全部标量**，否则量到的不是
+        // 滤波器形状而是形状 × 一个常数。DelayEffect::applyParams() 里
+        // fb_ = feedbackFromNorm(n) · kFitLoopFlatGain，所以两项都要除。
+        // 只除 kMeasFeedbackMax 会把 kFitLoopFlatGain 的 0.995283
+        // （−0.0411 dB）整体算进「滤波器偏差」里 —— 那是个与频率无关的平项，
+        // 会让整张表一致地偏一点，掩盖真正随频率变化的差。
+        const double g = loop_gain(freqs[i], 1.0, 1.0, 0.0)
+                       / (DT::kMeasFeedbackMax * DT::kFitLoopFlatGain);
         const double d = 20.0 * std::log10(g + 1e-30);
         const double diff = d - refDb[i];
         if (std::fabs(diff) > worst) worst = std::fabs(diff);
