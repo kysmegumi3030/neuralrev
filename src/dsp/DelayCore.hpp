@@ -312,12 +312,14 @@ public:
     static constexpr int kNodes = kOrder + 1;
     static constexpr int kHalf  = kOrder / 2;
 
-    /// 总延迟 = 整数 16 + 湿抽头**净**分数 4.1073。
+    /// 总延迟 = 整数 16 + 湿抽头**净**分数（现为 **−5.8927**）⇒ **10.1073** 样点。
     ///
-    /// 是净值而非 4.509：那 4.509 是整条湿路径的量（由 echo1 定），其中
-    /// 0.4017 属于**环内**（逐圈量，由逐圈重心回归定，见 DelayTuning.h
-    /// 的 kFitLoopExtraDelay）。两项之和必须守恒 = 4.509，否则闭合了逐圈
-    /// 就会破坏 echo1。
+    /// 净分数为负不是笔误 —— 它是三项相减的结果，湿路径总量 4.509 被两个
+    /// 别处已经承担掉的量扣干净了（见 DelayTuning.h 的 kFitWetPreDelayFracNet）：
+    ///   4.509（整条湿路径，由 echo1 定）
+    ///   − 0.4017（属**环内**，逐圈量，由逐圈重心回归定 ⇒ kFitLoopExtraDelay）
+    ///   − 10（WetShelf 对称核的群延迟，恒定、与档位无关）
+    /// 三项之和必须守恒 = 4.509，否则闭合了逐圈或搁架就会破坏 echo1。
     static constexpr double kTotal =
         static_cast<double>(delaytuning::kMeasLoopPreDelaySamples)
         + delaytuning::kFitWetPreDelayFracNet;
@@ -369,6 +371,111 @@ private:
     std::array<float, static_cast<size_t>(kLen)> z_ {};
     std::array<float, kNodes> c_ {};
     int di_ { 0 };
+    int pos_ { 0 };
+};
+
+// ============================================================
+// WetShelf —— 长延迟档的顶端八度修正（21 抽头零相位对称 FIR）
+// ============================================================
+// 依据、位置判定、形状选择与落点校核全部在 DelayTuning.h 的
+// kFitWetShelf* 注释里，这里只说实现上的三件事。
+//
+// 1. **对称核只存半边**，卷积时两侧配对：
+//        y = k[0]·z[c] + Σ_{i=1..H} k[i]·(z[c−i] + z[c+i])
+//    省一半乘法，且对称性由构造保证 —— 不可能因为抽头写错而引入相位。
+//
+// 2. **群延迟恒为 kHalf = 10 样点，与档位无关**（对称核的性质）。
+//    恒等档也是「中心抽头 = 1、其余 0」的单位冲激，**不是旁通** ——
+//    所以那 10 样点在所有档位上都存在，已由 kFitWetPreDelayFracNet
+//    一次性扣掉。这一点是它能被静态补偿的前提。
+//
+// 3. 抽头在 `setDelay()` 里按 D 插值算一次，不在 process() 里算。
+//    D 只在 updateDerived() 变，没有理由每样点重算。
+// ------------------------------------------------------------
+class WetShelf
+{
+public:
+    static constexpr int kHalf  = delaytuning::kFitWetShelfHalf;
+    static constexpr int kTaps  = 2 * kHalf + 1;
+    static constexpr int kKnots = delaytuning::kFitWetShelfKnots;
+    static constexpr int kLen   = kTaps + 1;
+
+    void reset() noexcept
+    {
+        z_.fill(0.0f);
+        pos_ = 0;
+    }
+
+    /// 按延迟长度 D（样点）设定抽头。
+    ///
+    /// 三段：D ≤ 起效点恒等；起效点…第一个节点在「恒等」与该节点之间插值；
+    /// 其上在相邻节点之间插值，超过最后一个节点则**不外推**（取端点值）。
+    /// 不外推的理由与 §12.7 那张分段线性表相同：区间外没有可信实测，
+    /// 外推会把趋势一路拉到最敏感的极限档上。
+    void setDelay(double d) noexcept
+    {
+        // 恒等核：中心抽头 1，其余 0（不是旁通，仍有 kHalf 的群延迟）
+        double h[kHalf + 1] = { 1.0 };
+
+        const double d0 = delaytuning::kFitWetShelfOnsetSamples;
+        const auto&  ks = delaytuning::kFitWetShelfKnotSamples;
+        const auto&  ts = delaytuning::kFitWetShelfTaps;
+
+        if (d > d0)
+        {
+            if (d <= ks[0])
+            {
+                // 恒等 → 第一个节点
+                const double u = (d - d0) / (ks[0] - d0);
+                for (int i = 0; i <= kHalf; ++i)
+                {
+                    const double id = (i == 0) ? 1.0 : 0.0;
+                    h[i] = id + u * (ts[0][i] - id);
+                }
+            }
+            else
+            {
+                int seg = kKnots - 2;
+                for (int s = 0; s < kKnots - 1; ++s)
+                    if (d <= ks[s + 1]) { seg = s; break; }
+
+                double u = (d - ks[seg]) / (ks[seg + 1] - ks[seg]);
+                u = std::clamp(u, 0.0, 1.0);          // 末节点之上不外推
+                for (int i = 0; i <= kHalf; ++i)
+                    h[i] = ts[seg][i] + u * (ts[seg + 1][i] - ts[seg][i]);
+            }
+        }
+
+        for (int i = 0; i <= kHalf; ++i)
+            k_[static_cast<size_t>(i)] = static_cast<float>(h[i]);
+    }
+
+    inline float process(float x) noexcept
+    {
+        z_[static_cast<size_t>(pos_)] = x;
+
+        const auto at = [this](int back) noexcept -> float
+        {
+            int idx = pos_ - back;
+            while (idx < 0)     idx += kLen;
+            while (idx >= kLen) idx -= kLen;
+            return z_[static_cast<size_t>(idx)];
+        };
+
+        // 中心抽头在 kHalf 样点之前；对称配对取 kHalf∓i
+        float y = k_[0] * at(kHalf);
+        for (int i = 1; i <= kHalf; ++i)
+            y += k_[static_cast<size_t>(i)] * (at(kHalf - i) + at(kHalf + i));
+
+        if (++pos_ >= kLen) pos_ = 0;
+        return y;
+    }
+
+private:
+    std::array<float, static_cast<size_t>(kLen)> z_ {};
+    /// 默认恒等（中心抽头 1），不是全零 —— 万一 setDelay 还没被调用过，
+    /// 全零核会让湿路径静音，那是一个很难查的静默失效。
+    std::array<float, kHalf + 1> k_ { 1.0f };
     int pos_ { 0 };
 };
 

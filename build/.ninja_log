@@ -93,3 +93,13 @@
 21159	23431	1786016634911336715	CMakeFiles/NeuralRev.dir/src/dsp/PluginProcessor.cpp.o	90ff07ebe6611080
 23432	24043	1786016637183750457	NeuralRev_artefacts/Release/libNeuralRev_SharedCode.a	34d2828389426be3
 24043	53691	1786016637795399814	NeuralRev_artefacts/Release/VST3/NeuralRev.vst3/Contents/MacOS/NeuralRev	d1dcf6af9916f7b9
+14	113	1786258460264610492	/Users/realmac/Documents/trae_projects/neuralrev/build/CMakeFiles/cmake.verify_globs	5876d6d0ab213c7e
+231	24262	1786258460481190097	CMakeFiles/NeuralRev_BuildFlutterUI	ed39e9a490c28da1
+231	24262	1786258460481190097	/Users/realmac/Documents/trae_projects/neuralrev/build/CMakeFiles/NeuralRev_BuildFlutterUI	ed39e9a490c28da1
+24262	24336	1786258484512341720	CMakeFiles/NeuralRev_BuildFlutterUI.util	4ec469fbe28653c3
+24337	25902	1786258484586699308	CMakeFiles/NeuralRev.dir/src/ui/PluginEditor.cpp.o	70adcf9c1a562241
+24337	25991	1786258484586893975	CMakeFiles/NeuralRev.dir/src/ui/AudioParameterBridge.cpp.o	a9c2dc59115e9b4b
+24337	26025	1786258484587033058	CMakeFiles/NeuralRev.dir/src/dsp/PluginProcessor.cpp.o	90ff07ebe6611080
+26025	26431	1786258486275476692	NeuralRev_artefacts/Release/libNeuralRev_SharedCode.a	34d2828389426be3
+26431	46395	1786258486681649554	NeuralRev_artefacts/Release/VST3/NeuralRev.vst3/Contents/MacOS/NeuralRev	d1dcf6af9916f7b9
+7	69	1786258578369919899	/Users/realmac/Documents/trae_projects/neuralrev/build/CMakeFiles/cmake.verify_globs	5876d6d0ab213c7e

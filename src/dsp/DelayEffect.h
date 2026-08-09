@@ -79,6 +79,7 @@ public:
         for (auto& f : loopHp_) f.reset();
         for (auto& f : fixedFir_) f.reset();
         for (auto& d : wetPre_) d.reset();
+        for (auto& d : wetShelf_) d.reset();
         for (auto& d : dryLat_) d.reset();
         fbState_[0] = fbState_[1] = 0.0f;
     }
@@ -207,9 +208,23 @@ public:
             const float preL = wetPre_[0].process(filtL);
             const float preR = stereo ? wetPre_[1].process(filtR) : preL;
 
+            // 长延迟档的顶端八度修正（21 抽头零相位对称 FIR）。在环**外**：
+            // 实测 1100 ms 档 echo1 单次就差 −12.44 dB ⇒ 需求在第一次通过时
+            // 就已存在，且与 fb 无关（§14.14.2 三个 fb 档误差相同到 0.01 dB）。
+            //
+            // ⚠️ 它与饱和的先后**不是**测出来的：所有相关测量都在 amp=1e-3 的
+            // 线性区做（否则饱和会把探针电平变成假的 HF 误差，见 §14.14.4 的
+            // ⚠️ 记录），线性区分不出这两级的顺序。放在饱和之前是因为搁架是
+            // 修正**滤波器响应**的，理应与被修正的那条滤波链相邻。
+            // 与 wetGain_ 的先后无所谓：搁架线性，标量可交换。
+            // 单声道时**复用** shL，不能再调一次 process —— 那会让同一个
+            // 滤波器状态每样点前进两格（wetPre_ 上面那行同理）。
+            const float shL = wetShelf_[0].process(preL);
+            const float shR = stereo ? wetShelf_[1].process(preR) : shL;
+
             // 湿声总线：×wet 后过静态饱和（实测饱和在环外、只在湿路）
-            const float outWetL = sat_.process(wetGain_ * preL);
-            const float outWetR = sat_.process(wetGain_ * preR);
+            const float outWetL = sat_.process(wetGain_ * shL);
+            const float outWetR = sat_.process(wetGain_ * shR);
 
             // 干路**延后 51 样点**（48 kHz），湿路不延。这不是拟合出来的
             // 配平，是参考通过 getLatencySamples() 自报的量，且实测干路冲激
@@ -259,6 +274,12 @@ private:
         line_[0].setDelay(dL);
         line_[1].setDelay(dR);
 
+        // 搁架的抽头只取决于延迟长度（左右独立，因为两声道可设不同时间）。
+        // 用 dL/dR 本身而不是 nTimeL_：律是按**样点**拟合的，换采样率时
+        // 必须跟着样点走，而不是跟着归一化值走。
+        wetShelf_[0].setDelay(dL);
+        wetShelf_[1].setDelay(dR);
+
         for (auto& l : line_)
             l.setLfo(kMeasLfoRateHz, kMeasLfoAmpSamples, sr_);
 
@@ -287,7 +308,12 @@ private:
     /// 见 DelayTuning.h kMeasLoopFirTaps —— 换掉了原来的两级二阶级联。
     std::array<LoopFir, 2> fixedFir_ {};
     /// 固定 20.509 样点预延迟：只在湿抽头上过一次，**不在反馈环内**。
+    /// ⚠️ 它现在只承担 10.1073 —— 另外 10 样点是 wetShelf_ 的群延迟，
+    /// 见 DelayTuning.h kFitWetPreDelayFracNet。
     std::array<WetPreDelay, 2> wetPre_ {};
+    /// 长延迟档的顶端八度修正：21 抽头零相位对称 FIR，与 wetPre_ 同处湿抽头。
+    /// 抽头随延迟长度插值（见 DelayTuning.h kFitWetShelf*）。
+    std::array<WetShelf, 2> wetShelf_ {};
     /// 干路的 51 样点整数延迟（参考自报的延迟补偿量）
     std::array<DryLatency, 2> dryLat_ {};
     int dryLatency_ { delaytuning::kMeasDryLatencySamples48k };
