@@ -215,37 +215,30 @@ class _DelayPedal extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 6),
-                // ---- 下排：LOW PASS、HIGH PASS + 同步组 ----
+                // ---- 下排：LOW PASS、HIGH PASS、NOTE L、NOTE R、TEMPO ----
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
                     _knob(bridge, 'd_lowpass', 'LOW PASS', size: 66),
                     _knob(bridge, 'd_highpass', 'HIGH PASS', size: 66),
-                    // SYNC 关 ⇒ NOTE/TEMPO 不参与 DSP，整组变暗
-                    // Stereo + Sync ⇒ 左右声道独立 NOTE 旋钮
-                    // Mono + Sync   ⇒ 单个 NOTE 旋钮（左右共用）
                     Opacity(
                       opacity: synced ? 1.0 : 0.35,
-                      child: Row(
-                        children: [
-                          if (synced && stereo) ...[
-                            _knob(bridge, 'd_note', 'NOTE L',
-                                size: 66, fmt: _noteName),
-                            const SizedBox(width: 10),
-                            _knob(bridge, 'd_noter', 'NOTE R',
-                                size: 66, fmt: _noteName),
-                          ] else ...[
-                            _knob(bridge, 'd_note', 'NOTE',
-                                size: 66, fmt: _noteName),
-                          ],
-                          const SizedBox(width: 10),
-                          _knob(bridge, 'd_tempo', 'TEMPO', size: 66),
-                        ],
-                      ),
+                      child: _knob(bridge, 'd_note', 'NOTE L',
+                          size: 66, fmt: _noteName),
+                    ),
+                    Opacity(
+                      opacity: (synced && stereo) ? 1.0 : 0.35,
+                      child: _knob(bridge, 'd_noter', 'NOTE R',
+                          size: 66, fmt: _noteName),
+                    ),
+                    Opacity(
+                      opacity: synced ? 1.0 : 0.35,
+                      child: _knob(bridge, 'd_tempo', 'TEMPO', size: 66),
                     ),
                   ],
                 ),
+                const Spacer(),
                 const Spacer(),
                 // ---- 两个面板拨钮 ----
                 Row(
