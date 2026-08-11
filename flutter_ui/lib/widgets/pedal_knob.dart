@@ -57,6 +57,68 @@ class _PedalKnobState extends State<PedalKnob> {
   double? _dragStartY;
   double? _valueAtDragStart;
   bool _hovering = false;
+  bool _editing = false;
+  late final TextEditingController _textController;
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _textController = TextEditingController(text: _display);
+    _focusNode = FocusNode();
+    _focusNode.addListener(_onFocusChange);
+  }
+
+  @override
+  void didUpdateWidget(covariant PedalKnob oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_editing && oldWidget.value != widget.value) {
+      _textController.text = _display;
+    }
+  }
+
+  @override
+  void dispose() {
+    _focusNode.removeListener(_onFocusChange);
+    _focusNode.dispose();
+    _textController.dispose();
+    super.dispose();
+  }
+
+  void _onFocusChange() {
+    if (!_focusNode.hasFocus && _editing) {
+      _commitEdit();
+    }
+  }
+
+  void _startEdit() {
+    setState(() {
+      _editing = true;
+      _textController.text = _display;
+    });
+    _focusNode.requestFocus();
+    _textController.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: _textController.text.length,
+    );
+  }
+
+  void _commitEdit() {
+    final raw = _textController.text.trim();
+    final parsed = double.tryParse(raw);
+    setState(() => _editing = false);
+    if (parsed != null) {
+      widget.onChanged(parsed.clamp(widget.min, widget.max));
+    } else {
+      _textController.text = _display;
+    }
+  }
+
+  void _cancelEdit() {
+    setState(() => _editing = false);
+    _textController.text = _display;
+    _focusNode.unfocus();
+  }
 
   // 旋钮可转范围：与实体旋钮一致的 ~300°（7 点钟到 5 点钟）
   static const double _minAngle = -2.618; // -150°
@@ -171,17 +233,67 @@ class _PedalKnobState extends State<PedalKnob> {
         const SizedBox(height: 4),
         knob,
         const SizedBox(height: 3),
-        // 悬停/拖动时显示读数（面板本身不印数字，避免破坏还原度）
-        Opacity(
-          opacity: _hovering || _dragStartY != null ? 1.0 : 0.0,
-          child: Text(
-            _display,
-            style: const TextStyle(
-              color: Color(0xff2b2b2b),
-              fontSize: 8,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+        // 点按数值输入框：始终显示，点击后弹出键盘直接输入
+        SizedBox(
+          width: widget.size,
+          child: _editing
+              ? SizedBox(
+                  height: 18,
+                  child: TextField(
+                    controller: _textController,
+                    focusNode: _focusNode,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Color(0xff2b2b2b),
+                      fontSize: 8,
+                      fontWeight: FontWeight.w600,
+                      height: 1.2,
+                    ),
+                    decoration: const InputDecoration(
+                      contentPadding: EdgeInsets.zero,
+                      border: OutlineInputBorder(
+                        borderSide:
+                            BorderSide(color: Color(0xff888888), width: 0.5),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderSide:
+                            BorderSide(color: Color(0xff444444), width: 0.5),
+                      ),
+                      isDense: true,
+                    ),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    onSubmitted: (_) => _commitEdit(),
+                    onTapOutside: (_) => _commitEdit(),
+                  ),
+                )
+              : GestureDetector(
+                  onTap: _startEdit,
+                  child: Opacity(
+                    opacity: _hovering || _dragStartY != null ? 1.0 : 0.0,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        // 透明占位保证布局稳定
+                        const Text(
+                          ' ',
+                          style: TextStyle(
+                            fontSize: 8,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          _display,
+                          style: const TextStyle(
+                            color: Color(0xff2b2b2b),
+                            fontSize: 8,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
         ),
       ],
     );
